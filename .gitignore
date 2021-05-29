@@ -1,2 +1,4 @@
+__pycache*
+dask-worker*
 .ipynb_checkpoints/
 *.pgn
