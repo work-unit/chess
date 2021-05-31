@@ -2,6 +2,7 @@ import numpy as np
 import chess
 import time
 from joblib import dump, load
+import dask
 
 
 # Flatten any board into a single string
@@ -105,13 +106,13 @@ def recommend_move(board=None, max_level=3):
         get_leaf(child, leaf_nodes, 0)
         child_dict[str(child.previous_move)] = leaf_nodes
 
-        
     predictions = {each:[] for each in child_dict.keys()}
     # Determine probabilities for each leaf
-    for k,v in child_dict.items():
+    for k,v in child_dict.items(): # k is 1 of the original moves, v is a list of (node, level)
         #print('got here')
+        #print(k)
         my_move = False
-        for game_state in v:
+        for game_state in v: # game_state means who's turn is it :P
             #print(game_state[1])
             if game_state[1] % 2 == 0:
                 #print('My Move')
@@ -119,44 +120,34 @@ def recommend_move(board=None, max_level=3):
             else:
                 #print('Opponent Move')
                 pass
-                
-            board_flat = flatten_board(board)
+            #print(game_state[0].board)
+            # board should be k.board
+            board_flat = flatten_board(game_state[0].board) # changed from board to k.board
             encode = np.array(get_encoded_board(board_flat)).reshape(1, -1)
-            probability = clf.predict(encode)[0]
+            #probability = clf.predict(encode)[0]
+            probability = clf.predict_proba(encode)[0]
+            #print('PROBABILITY IS:')
+            #print(probability)
+            #print(probability)
             
             if my_move:
-                if probability == 1:
-                    predictions[k].append(1)
-                elif probability == -1:
-                    predictions[k].append(-1)
-                else:
-                    predictions[k].append(0)
-                #predictions[k].append(probability)
+                predictions[k].append(probability[2]) # since its prob of white losing [0], make it black losign [2]
             elif not my_move:
-                if probability == 1:
-                    predictions[k].append(-1)
-                elif probability == -1:
-                    predictions[k].append(1)
-                else:
-                    predictions[k].append(0)
-            
+                predictions[k].append(probability[0])
             
     move_list = list(predictions.keys())
     loss_sum = []
     for k,v in predictions.items():
-        loss_sum_tmp = 0
-        for each in v:
-            #print(v)
-            if each == -1:
-                loss_sum_tmp += 1
-        loss_sum.append(loss_sum_tmp)
+        #loss_sum.append(np.average(np.array(v)))        
+        loss_sum.append(np.min(np.array(v)))        
     
     loss_sum = np.array(loss_sum)
     #print('loss_sum', loss_sum)
+    print(loss_sum)
     loss_sum_min = np.where(loss_sum == loss_sum.min())[0]
     #print('loss_sum_min', loss_sum_min)
     recommended_move_idx = np.random.choice(loss_sum_min)
     recommended_move = move_list[recommended_move_idx]
-    return {'move': recommended_move, 'Total min choices': len(loss_sum_min)}
+    return {'move': recommended_move, 'stats': {'moves_with_least_loss': len(loss_sum_min), 'num_predicted_moves': len(loss_sum)}}
 
 
