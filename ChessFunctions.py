@@ -1,4 +1,7 @@
 import numpy as np
+import chess
+import time
+from joblib import dump, load
 
 
 # Flatten any board into a single string
@@ -38,6 +41,122 @@ def get_encoded_board(x):
     
     return(feature_list)
 
+# Recursion
+class Tree:
+    """Base Class used to setup chess move tree"""
+    def __init__(self, board):
+        self.board = board
+        self.children = []
 
+    def addNode(self, obj):
+        self.children.append(obj)
+
+
+class Node:
+    """Class used to add depth to Tree class"""
+    def __init__(self, parent, board, move):
+        self.parent = parent
+        self.board = board
+        self.previous_move = move
+        self.children = []
+
+    def addNode(self, obj):
+        self.children.append(obj)
+
+def build_tree(parent, level, max_level=1):
+    """Builds a chess move tree out to max_level"""
+    if level == max_level:
+        return
+
+    # Build up children nodes
+    for move in parent.board.legal_moves:
+        board_copy = parent.board.copy()
+        board_copy.push(move)
+        parent.addNode(Node(parent, board_copy, move))
+
+    # Recursively add Nodes for each child
+    for node in parent.children:
+            build_tree(node, level+1, max_level=max_level)
+
+def get_leaf(child, leaf_nodes, level):
+    """After a Tree is built, this is used to get a reference 
+    to the leaf nodes out to level"""
+    if not child.children:
+        leaf_nodes.append((child, level))
+        return
+    else:
+        for child in child.children:
+            get_leaf(child, leaf_nodes, level+1)  
+
+def recommend_move(board=None, max_level=3):
+    if not board:
+        board = chess.Board() # Instantiate board - gone if used as method
+        print("Creating a board")
+    
+    clf = load('filename.joblib') # load model
+    
+    
+    root = Tree(board) # Create root
+    build_tree(root, 0, max_level=max_level) # Build the tree
+
+    child_dict = {} # Instantiate dictionary to hold references to leaf nodes
+    for child in root.children:
+        leaf_nodes = []
+        get_leaf(child, leaf_nodes, 0)
+        child_dict[str(child.previous_move)] = leaf_nodes
+
+        
+    predictions = {each:[] for each in child_dict.keys()}
+    # Determine probabilities for each leaf
+    for k,v in child_dict.items():
+        #print('got here')
+        my_move = False
+        for game_state in v:
+            #print(game_state[1])
+            if game_state[1] % 2 == 0:
+                #print('My Move')
+                my_move = True
+            else:
+                #print('Opponent Move')
+                pass
+                
+            board_flat = flatten_board(board)
+            encode = np.array(get_encoded_board(board_flat)).reshape(1, -1)
+            probability = clf.predict(encode)[0]
+            
+            if my_move:
+                if probability == 1:
+                    predictions[k].append(1)
+                elif probability == -1:
+                    predictions[k].append(-1)
+                else:
+                    predictions[k].append(0)
+                #predictions[k].append(probability)
+            elif not my_move:
+                if probability == 1:
+                    predictions[k].append(-1)
+                elif probability == -1:
+                    predictions[k].append(1)
+                else:
+                    predictions[k].append(0)
+            
+            
+    move_list = list(predictions.keys())
+    loss_sum = []
+    for k,v in predictions.items():
+        loss_sum_tmp = 0
+        for each in v:
+            #print(v)
+            if each == -1:
+                loss_sum_tmp += 1
+        loss_sum.append(loss_sum_tmp)
+    
+    loss_sum = np.array(loss_sum)
+    #print('loss_sum', loss_sum)
+    loss_sum_min = np.where(loss_sum == loss_sum.min())[0]
+    #print('loss_sum_min', loss_sum_min)
+    recommended_move_idx = np.random.choice(loss_sum_min)
+    recommended_move = move_list[recommended_move_idx]
+    return {'move': recommended_move, 'Total min choices': len(loss_sum_min)}
 
 
